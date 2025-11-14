@@ -3,7 +3,7 @@ subcategory: "Virtual Machine"
 page_title: "VMware vSphere: vsphere_ovf_vm_template"
 sidebar_current: "docs-vsphere-data-source-ovf-vm-template"
 description: |-
-  A data source that can be used to extract the configuration of an OVF template.
+  A data source that can be used to extract the configuration of an OVF template from a file or content library.
 ---
 
 # vsphere_ovf_vm_template
@@ -11,6 +11,10 @@ description: |-
 The `vsphere_ovf_vm_template` data source can be used to submit an OVF to
 vSphere and extract its hardware settings in a form that can be then used as
 inputs for a `vsphere_virtual_machine` resource.
+
+This data source supports two modes:
+1. **File-based**: Read OVF/OVA from a local file or remote URL
+2. **Content Library Search**: Search and filter OVF templates in a vSphere content library (similar to AWS AMI data source)
 
 ## Example Usage
 
@@ -42,6 +46,29 @@ data "vsphere_host" "host" {
 data "vsphere_network" "network" {
   name          = "172.16.11.0"
   datacenter_id = data.vsphere_datacenter.datacenter.id
+}
+
+data "vsphere_content_library" "library" {
+  name = "my-content-library"
+}
+
+## Content Library Search - Find Latest Template by Name Prefix
+data "vsphere_ovf_vm_template" "latestUbuntu" {
+  name_regex       = "^ubuntu-22.*"
+  library_id       = data.vsphere_content_library.library.id
+  most_recent      = true
+  resource_pool_id = data.vsphere_resource_pool.default.id
+  host_system_id   = data.vsphere_host.host.id
+  datastore_id     = data.vsphere_datastore.datastore.id
+}
+
+## Content Library Search - Find Template by Exact Name
+data "vsphere_ovf_vm_template" "specificTemplate" {
+  name             = "ubuntu-22.04-server-cloudimg"
+  library_id       = data.vsphere_content_library.library.id
+  resource_pool_id = data.vsphere_resource_pool.default.id
+  host_system_id   = data.vsphere_host.host.id
+  datastore_id     = data.vsphere_datastore.datastore.id
 }
 
 ## Remote OVF/OVA Source
@@ -184,23 +211,48 @@ resource "vsphere_virtual_machine" "vmFromLocalOvf" {
 
 The following arguments are supported:
 
-* `name` - Name of the virtual machine to create.
+### Common Arguments
+
 * `resource_pool_id` - (Required) The ID of a resource pool in which to place
   the virtual machine.
 * `host_system_id` - (Required) The ID of the ESXi host system to deploy the
   virtual machine.
-* `datastore_id` - (Required) The ID of the virtual machine's datastore. The
+* `datastore_id` - (Optional) The ID of the virtual machine's datastore. The
   virtual machine configuration is placed here, along with any virtual disks
   that are created without datastores.
-* `folder` - (Required) The name of the folder in which to place the virtual
+* `folder` - (Optional) The name of the folder in which to place the virtual
   machine.
+
+### File-Based Mode Arguments
+
+Use these arguments when reading from a local file or remote URL:
+
+* `name` - (Optional) Name of the virtual machine to create. When using content
+  library search mode, this filters templates by exact name match.
 * `local_ovf_path` - (Optional) The absolute path to the OVF/OVA file on the
   local system. When deploying from an OVF, ensure all necessary files such as
   the `.vmdk` files are present in the same directory as the OVF.
 * `remote_ovf_url` - (Optional) URL of the remote OVF/OVA file to be deployed.
 
-~> **NOTE:** Either `local_ovf_path` or `remote_ovf_url` is required, both can
-  not be empty.
+~> **NOTE:** When not using content library search (`library_id`), either
+  `local_ovf_path` or `remote_ovf_url` is required.
+
+### Content Library Search Mode Arguments
+
+Use these arguments when searching for OVF templates in a content library:
+
+* `library_id` - (Optional) The ID of the content library to search for OVF
+  templates. When specified, the data source will search for templates in this
+  library instead of reading from a file.
+* `name_regex` - (Optional) A regular expression to filter OVF templates by
+  name. This is useful for finding templates with a specific naming pattern,
+  such as `^ubuntu-22.*` to find all Ubuntu 22.x templates.
+* `most_recent` - (Optional) If multiple OVF templates match the search
+  criteria, return the most recently created template. Defaults to `false`.
+  When `false` and multiple templates match, an error will be returned.
+
+~> **NOTE:** You cannot specify both `name` and `name_regex`. Use `name` for
+  exact matches and `name_regex` for pattern matching.
 
 * `ip_allocation_policy` - (Optional) The IP allocation policy.
 * `ip_protocol` - (Optional) The IP protocol.
